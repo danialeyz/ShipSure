@@ -27,3 +27,7 @@ Thumbs.db
 # GitHub token (if accidentally saved)
 *.token
 token.txt
+
+# Output directory
+output/
+results/

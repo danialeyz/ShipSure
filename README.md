@@ -155,47 +155,84 @@ The program handles:
 - API errors
 - Network issues
 
-## Running Tests in Daytona
+## ShipSure - Main Workflow
 
-After Coderabbit generates unit tests, you can run them in a Daytona container:
-
-```bash
-python run_tests_daytona.py <owner> <repo> <pr_number> [options]
-```
+ShipSure analyzes all PRs in a repository, generates tests, runs them in Daytona, and provides risk assessments.
 
 ### Prerequisites
 
-1. **Daytona API Key**: Get from https://app.daytona.io/
-2. Add to `.env` file:
-   ```
-   DAYTONA_API_KEY=your_daytona_api_key
-   ```
+1. **GitHub Personal Access Token**: Get from https://github.com/settings/tokens
+2. **Daytona API Key**: Get from https://app.daytona.io/
+3. **OpenAI API Key**: Get from https://platform.openai.com/api-keys
+
+Add all to `.env` file:
+```env
+GITHUB_TOKEN=your_github_token
+DAYTONA_API_KEY=your_daytona_api_key
+OPENAI_API_KEY=your_openai_api_key
+```
 
 ### Usage
 
 ```bash
-# Auto-detect Coderabbit test PR
-python run_tests_daytona.py owner repo 123
+# Analyze all open PRs
+python main.py owner/repo
 
-# Specify test PR manually
-python run_tests_daytona.py owner repo 123 --test-pr 456
+# Analyze closed PRs
+python main.py owner/repo --state closed
 
-# Custom test command
-python run_tests_daytona.py owner repo 123 --test-command "python -m pytest -v"
+# Analyze all PRs (open + closed)
+python main.py owner/repo --state all
 
-# Keep sandbox for debugging
-python run_tests_daytona.py owner repo 123 --keep-sandbox
+# Limit number of PRs to process
+python main.py owner/repo --max-prs 10
+
+# Skip test generation/execution (faster, GPT analysis only)
+python main.py owner/repo --skip-tests
+
+# Skip GPT analysis (tests only)
+python main.py owner/repo --skip-gpt
+
+# Custom output directory
+python main.py owner/repo --output-dir my_results
 ```
 
 ### How It Works
 
-1. Fetches code changes from the original PR
-2. Finds or uses the Coderabbit-generated test PR
-3. Downloads both sets of files
-4. Creates a Daytona sandbox
-5. Sets up the test environment
-6. Runs the tests
-7. Cleans up the sandbox (unless `--keep-sandbox` is used)
+1. **Fetches all PRs** from the repository
+2. **For each PR**:
+   - Checks for Coderabbit reviews
+   - Triggers unit test generation via Coderabbit
+   - Runs tests in Daytona sandbox
+   - Analyzes results with GPT API for risk assessment
+3. **Generates JSON output** with risk scores, test results, and analysis
+4. **Saves results** to `output/` directory with timestamps
+
+### Output Structure
+
+Results are saved as JSON files in the output directory:
+
+```json
+{
+  "repository": "owner/repo",
+  "processedAt": "2024-01-01T12:00:00",
+  "pullRequests": [
+    {
+      "id": 42,
+      "title": "Fix auth bypass in login",
+      "link": "https://github.com/org/repo/pull/42",
+      "risk": 85,
+      "coderabbitReviews": [...],
+      "generatedTests": [...],
+      "testResults": {...}
+    }
+  ]
+}
+```
+
+### Logs
+
+All operations are logged to `output/logs/` directory with timestamps.
 
 ## License
 
