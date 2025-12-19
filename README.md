@@ -38,6 +38,10 @@ pip install -r requirements.txt
    # GitHub Personal Access Token
    # Get your token from: https://github.com/settings/tokens
    GITHUB_TOKEN=ghp_your_actual_token_here
+   
+   # Daytona API Key (for running tests)
+   # Get your key from: https://app.daytona.io/
+   DAYTONA_API_KEY=your_daytona_api_key_here
    ```
    
    The `.env` file is automatically loaded by the scripts and is ignored by git for security.
@@ -150,6 +154,48 @@ The program handles:
 - Invalid PR information
 - API errors
 - Network issues
+
+## Running Tests in Daytona
+
+After Coderabbit generates unit tests, you can run them in a Daytona container:
+
+```bash
+python run_tests_daytona.py <owner> <repo> <pr_number> [options]
+```
+
+### Prerequisites
+
+1. **Daytona API Key**: Get from https://app.daytona.io/
+2. Add to `.env` file:
+   ```
+   DAYTONA_API_KEY=your_daytona_api_key
+   ```
+
+### Usage
+
+```bash
+# Auto-detect Coderabbit test PR
+python run_tests_daytona.py owner repo 123
+
+# Specify test PR manually
+python run_tests_daytona.py owner repo 123 --test-pr 456
+
+# Custom test command
+python run_tests_daytona.py owner repo 123 --test-command "python -m pytest -v"
+
+# Keep sandbox for debugging
+python run_tests_daytona.py owner repo 123 --keep-sandbox
+```
+
+### How It Works
+
+1. Fetches code changes from the original PR
+2. Finds or uses the Coderabbit-generated test PR
+3. Downloads both sets of files
+4. Creates a Daytona sandbox
+5. Sets up the test environment
+6. Runs the tests
+7. Cleans up the sandbox (unless `--keep-sandbox` is used)
 
 ## License
 

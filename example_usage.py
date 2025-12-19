@@ -4,7 +4,7 @@ Example script showing how to use the GitHubAPIClient programmatically.
 
 import os
 from dotenv import load_dotenv
-from trigger_coderabbit_tests import GitHubAPIClient, PRInfo
+from github_client import GitHubAPIClient
 
 # Load environment variables from .env file
 load_dotenv()
@@ -17,37 +17,29 @@ def example_usage():
     client = GitHubAPIClient()
     
     # Define PR information
-    pr_info = PRInfo(
-        owner="aircode610",
-        repo="startup",
-        pr_number=3
-    )
+    owner = "aircode610"
+    repo = "startup"
+    pr_number = 3
     
     # Fetch PR info
-    print(f"Fetching PR #{pr_info.pr_number}...")
-    pr_data = client.get_pr_info(pr_info.owner, pr_info.repo, pr_info.pr_number)
+    print(f"Fetching PR #{pr_number}...")
+    pr_data = client.get_pr_info(owner, repo, pr_number)
     print(f"PR Title: {pr_data.get('title')}")
     print(f"PR URL: {pr_data.get('html_url')}")
     
     # Check for Coderabbit review
     print("\nChecking for Coderabbit review...")
-    has_review = client.check_coderabbit_review(
-        pr_info.owner, pr_info.repo, pr_info.pr_number
-    )
+    has_review = client.check_coderabbit_review(owner, repo, pr_number)
     print(f"Has Coderabbit review: {has_review}")
     
     if has_review:
         # Get Coderabbit comments
-        comments = client.get_coderabbit_comments(
-            pr_info.owner, pr_info.repo, pr_info.pr_number
-        )
+        comments = client.get_coderabbit_comments(owner, repo, pr_number)
         print(f"Found {len(comments)} Coderabbit comment(s)")
     
     # Trigger unit test generation
     print("\nTriggering unit test generation...")
-    comment = client.trigger_unit_test_generation(
-        pr_info.owner, pr_info.repo, pr_info.pr_number
-    )
+    comment = client.trigger_unit_test_generation(owner, repo, pr_number)
     print(f"Comment posted: {comment.get('html_url')}")
 
 
