@@ -1,0 +1,620 @@
+/* =========================================================
+   MOCK BACKEND
+   Replace fetchPullRequests() with:
+   fetch("/api/pull-requests").then(r => r.json())
+   ========================================================= */
+function fetchPullRequests() {
+  return Promise.resolve({
+    pullRequests: [
+      {
+        id: 1,
+        title: "Fix auth bypass in login",
+        link: "https://github.com/org/repo/pull/42",
+        risk: 78,
+        coderabbitReviews: [
+          {
+            name: "SQL Injection test",
+            type: "danger",
+            risk: 85,
+            description:
+              "Potential unsafe query detected in data access layer.",
+          },
+          {
+            name: "Auth edge case test",
+            type: "warning",
+            risk: 55,
+            description: "Token expiry edge case not fully covered.",
+          },
+          {
+            name: "Login happy path",
+            type: "success",
+            description: "Basic login flow passed.",
+          },
+          {
+            name: "Session invalidation",
+            type: "success",
+            description: "Logout invalidates session.",
+          },
+        ],
+        generatedTests: [
+          {
+            test: "Expired JWT validation",
+            reason: "Auth middleware did not handle expired tokens.",
+          },
+          {
+            test: "Malformed payload test",
+            reason: "Missing schema validation for login payload.",
+          },
+        ],
+      },
+      {
+        id: 2,
+        title: "Refactor dashboard UI components",
+        link: "https://github.com/org/repo/pull/51",
+        risk: 28,
+        coderabbitReviews: [
+          {
+            name: "Snapshot stability",
+            type: "warning",
+            risk: 42,
+            description: "Snapshot test might be brittle after layout changes.",
+          },
+          {
+            name: "Build pipeline",
+            type: "success",
+            description: "Build and lint passed.",
+          },
+          {
+            name: "UI regression suite",
+            type: "success",
+            description: "Core UI flows passed.",
+          },
+        ],
+        generatedTests: [
+          {
+            test: "Visual regression for sidebar",
+            reason: "Large UI refactor changed layout structure.",
+          },
+        ],
+      },
+      {
+        id: 3,
+        title: "Optimize query + caching layer",
+        link: "https://github.com/org/repo/pull/63",
+        risk: 66,
+        coderabbitReviews: [
+          {
+            name: "N+1 query detection",
+            type: "warning",
+            risk: 62,
+            description: "Potential N+1 pattern if cache misses.",
+          },
+          {
+            name: "Cache invalidation",
+            type: "warning",
+            risk: 58,
+            description:
+              "Invalidate key strategy unclear under concurrent writes.",
+          },
+          {
+            name: "Perf baseline",
+            type: "success",
+            description: "Perf tests improved vs baseline.",
+          },
+        ],
+        generatedTests: [
+          {
+            test: "Concurrent invalidation test",
+            reason: "Caching logic may break under concurrent writes.",
+          },
+        ],
+      },
+    ],
+  });
+}
+
+/* =========================================================
+   STATE
+   ========================================================= */
+const state = {
+  raw: null,
+  highRiskOnly: false,
+  sortMode: "risk_desc",
+};
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
+function iconByType(type) {
+  if (type === "danger") return "❌";
+  if (type === "warning") return "⚠️";
+  if (type === "success") return "✅";
+  return "ℹ️";
+}
+
+function riskMeta(risk) {
+  if (risk >= 70)
+    return {
+      label: "High Risk",
+      badge: "text-red-300 bg-red-500/10 border-red-500/20",
+    };
+  if (risk >= 40)
+    return {
+      label: "Medium Risk",
+      badge: "text-yellow-200 bg-yellow-500/10 border-yellow-500/20",
+    };
+  return {
+    label: "Low Risk",
+    badge: "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
+  };
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function countByType(reviews) {
+  const errors = reviews.filter((r) => r.type === "danger");
+  const warnings = reviews.filter((r) => r.type === "warning");
+  const passed = reviews.filter((r) => r.type === "success");
+  return { errors, warnings, passed };
+}
+
+/* =========================================================
+   CLIENT-SIDE "INTELLIGENCE"
+   ========================================================= */
+function computeConfidence(pr) {
+  const { errors, warnings, passed } = countByType(pr.coderabbitReviews);
+  const maxErrorRisk = errors.length
+    ? Math.max(...errors.map((e) => e.risk || 0))
+    : 0;
+
+  // Simple, explainable scoring:
+  // Start at 60, add for passed, subtract for warnings/errors & very high error risk.
+  let score = 60;
+  score += passed.length * 6;
+  score += (pr.generatedTests?.length || 0) * 2;
+  score -= warnings.length * 8;
+  score -= errors.length * 18;
+  score -= maxErrorRisk * 0.12;
+
+  return clamp(Math.round(score), 0, 100);
+}
+
+function computeWhyRisky(pr) {
+  const text = `${pr.title} ${pr.coderabbitReviews
+    .map((r) => `${r.name} ${r.description}`)
+    .join(" ")}`.toLowerCase();
+  const { errors, warnings } = countByType(pr.coderabbitReviews);
+
+  const reasons = [];
+
+  // 1) Highest risk failing signal
+  if (errors.length) {
+    const top = [...errors].sort((a, b) => (b.risk || 0) - (a.risk || 0))[0];
+    reasons.push(`Fails critical check: "${top.name}" (${top.risk}%)`);
+  } else if (warnings.length) {
+    const top = [...warnings].sort((a, b) => (b.risk || 0) - (a.risk || 0))[0];
+    reasons.push(`Unresolved warning: "${top.name}" (${top.risk}%)`);
+  }
+
+  // 2) Keyword heuristics (frontend-only, no backend cost)
+  const keywordRules = [
+    {
+      k: ["auth", "token", "login", "session", "jwt"],
+      r: "Touches authentication/session logic",
+    },
+    {
+      k: ["sql", "query", "db", "database", "injection"],
+      r: "Interacts with data layer / query logic",
+    },
+    {
+      k: ["cache", "caching", "invalidation"],
+      r: "Changes caching & invalidation behavior",
+    },
+    {
+      k: ["payment", "billing", "invoice"],
+      r: "Affects payment/billing surfaces",
+    },
+    {
+      k: ["encryption", "crypto", "secret", "key"],
+      r: "Touches secrets / encryption boundaries",
+    },
+  ];
+
+  for (const rule of keywordRules) {
+    if (rule.k.some((x) => text.includes(x))) {
+      reasons.push(rule.r);
+    }
+  }
+
+  // 3) Generated tests imply risk/uncertainty
+  const genCount = pr.generatedTests?.length || 0;
+  if (genCount >= 2)
+    reasons.push(`Triggers additional test generation (${genCount} new tests)`);
+  else if (genCount === 1)
+    reasons.push("Triggers additional test generation (1 new test)");
+
+  // Keep it minimal
+  const unique = [...new Set(reasons)];
+  return unique.slice(0, 3);
+}
+
+function computeFixOrder(pr) {
+  const { errors, warnings } = countByType(pr.coderabbitReviews);
+  const list = [...errors, ...warnings];
+
+  // Danger before warning, then higher risk first
+  const weight = (x) => (x.type === "danger" ? 1000 : 0) + (x.risk || 0);
+  list.sort((a, b) => weight(b) - weight(a));
+
+  return list.slice(0, 3);
+}
+
+/* =========================================================
+   UI BUILDERS
+   ========================================================= */
+function renderRiskBadge({ label, badge }, extra = "") {
+  return `<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full border ${badge} text-xs ${extra}">${label}</span>`;
+}
+
+function renderBreakdownBar(errorsCount, warningsCount, passedCount) {
+  const total = errorsCount + warningsCount + passedCount;
+  if (total === 0) {
+    return `<div class="h-2 rounded-full bg-slate-800/60 overflow-hidden"></div>`;
+  }
+
+  const eW = Math.round((errorsCount / total) * 100);
+  const wW = Math.round((warningsCount / total) * 100);
+  const pW = Math.max(0, 100 - eW - wW);
+
+  // Minimal, subtle tones
+  return `
+    <div class="h-2 rounded-full bg-slate-800/60 overflow-hidden flex">
+      <div class="h-full bg-red-500/60" style="width:${eW}%"></div>
+      <div class="h-full bg-yellow-400/60" style="width:${wW}%"></div>
+      <div class="h-full bg-emerald-400/70" style="width:${pW}%"></div>
+    </div>
+  `;
+}
+
+function renderIssueItem(item) {
+  const risk = riskMeta(item.risk || 0);
+  return `
+    <li class="p-3 rounded bg-[#0b1220] border border-slate-800">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span>${iconByType(item.type)}</span>
+            <span class="font-medium truncate">${item.name}</span>
+          </div>
+          <p class="text-sm text-slate-400 mt-1">${item.description}</p>
+        </div>
+
+        <div class="text-right shrink-0">
+          ${renderRiskBadge(risk)}
+          <div class="text-[11px] text-slate-400 mt-1">${item.risk}%</div>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderPassedItem(item) {
+  return `
+    <li class="p-3 rounded bg-[#0b1220] border border-slate-800">
+      <div class="flex items-start gap-2">
+        <span>${iconByType(item.type)}</span>
+        <div>
+          <div class="font-medium">${item.name}</div>
+          <p class="text-sm text-slate-400 mt-1">${item.description}</p>
+        </div>
+      </div>
+    </li>
+  `;
+}
+
+function renderSection(title, items, kind) {
+  if (!items.length) return "";
+
+  const listHtml = items
+    .map((it) => {
+      if (kind === "risk") return renderIssueItem(it);
+      return renderPassedItem(it);
+    })
+    .join("");
+
+  return `
+    <section class="space-y-2">
+      <h3 class="text-sm font-semibold text-slate-300">${title}</h3>
+      <ul class="space-y-2">${listHtml}</ul>
+    </section>
+  `;
+}
+
+/* =========================================================
+   RENDER MAIN
+   ========================================================= */
+function getDerivedPR(pr) {
+  const groups = countByType(pr.coderabbitReviews);
+  const confidence = computeConfidence(pr);
+  const why = computeWhyRisky(pr);
+  const fixFirst = computeFixOrder(pr);
+
+  return { ...pr, ...groups, confidence, why, fixFirst };
+}
+
+function applyFiltersAndSort(prs) {
+  let list = prs.slice();
+
+  if (state.highRiskOnly) {
+    list = list.filter((pr) => riskMeta(pr.risk).label === "High Risk");
+  }
+
+  const compare = {
+    risk_desc: (a, b) => b.risk - a.risk,
+    errors_desc: (a, b) => b.errors.length - a.errors.length,
+    warnings_desc: (a, b) => b.warnings.length - a.warnings.length,
+    confidence_desc: (a, b) => b.confidence - a.confidence,
+  }[state.sortMode];
+
+  list.sort(compare);
+  return list;
+}
+
+function renderPullRequests(data) {
+  const container = document.getElementById("accordion");
+  container.innerHTML = "";
+
+  const derived = data.pullRequests.map(getDerivedPR);
+  const view = applyFiltersAndSort(derived);
+
+  if (!view.length) {
+    container.innerHTML = `
+      <div class="rounded-lg bg-[#0f172a] border border-slate-800 p-6 text-slate-400">
+        No pull requests match your filter.
+      </div>
+    `;
+    return;
+  }
+
+  view.forEach((pr) => {
+    const prRisk = riskMeta(pr.risk);
+    const confMeta =
+      pr.confidence >= 75
+        ? {
+            label: "High Confidence",
+            badge: "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
+          }
+        : pr.confidence >= 45
+        ? {
+            label: "Medium Confidence",
+            badge: "text-yellow-200 bg-yellow-500/10 border-yellow-500/20",
+          }
+        : {
+            label: "Low Confidence",
+            badge: "text-red-300 bg-red-500/10 border-red-500/20",
+          };
+
+    const headerCounts = `
+      <div class="flex items-center gap-3 text-xs text-slate-400 mt-2">
+        <span>❌ <span class="text-slate-200">${pr.errors.length}</span></span>
+        <span>⚠️ <span class="text-slate-200">${pr.warnings.length}</span></span>
+        <span>✅ <span class="text-slate-200">${pr.passed.length}</span></span>
+      </div>
+    `;
+
+    const breakdownBar = renderBreakdownBar(
+      pr.errors.length,
+      pr.warnings.length,
+      pr.passed.length
+    );
+
+    const whyHtml = pr.why.length
+      ? `
+        <div class="rounded-md bg-[#0b1220] border border-slate-800 p-3">
+          <div class="text-xs font-semibold text-slate-300 mb-2">Why this PR is ${
+            prRisk.label
+          }</div>
+          <ul class="text-sm text-slate-400 list-disc pl-5 space-y-1">
+            ${pr.why.map((x) => `<li>${x}</li>`).join("")}
+          </ul>
+        </div>
+      `
+      : "";
+
+    const fixHtml = pr.fixFirst.length
+      ? `
+        <div class="rounded-md bg-[#0b1220] border border-slate-800 p-3">
+          <div class="text-xs font-semibold text-slate-300 mb-2">Fix this first</div>
+          <ol class="text-sm text-slate-400 space-y-2">
+            ${pr.fixFirst
+              .map((x, i) => {
+                const r = riskMeta(x.risk || 0);
+                return `
+                <li class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="text-slate-200">
+                      ${i + 1}. ${iconByType(
+                  x.type
+                )} <span class="font-medium">${x.name}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 mt-1">${
+                      x.description
+                    }</div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    ${renderRiskBadge(r)}
+                    <div class="text-[11px] text-slate-400 mt-1">${
+                      x.risk
+                    }%</div>
+                  </div>
+                </li>
+              `;
+              })
+              .join("")}
+          </ol>
+        </div>
+      `
+      : "";
+
+    const card = document.createElement("div");
+    card.className = "rounded-lg bg-[#0f172a] border border-slate-800";
+
+    card.innerHTML = `
+      <!-- HEADER -->
+      <button class="w-full p-4 text-left hover:bg-slate-800/30 transition flex flex-col md:flex-row md:items-start md:justify-between gap-3"
+              data-toggle aria-expanded="false">
+        <div class="min-w-0">
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-medium truncate">${pr.title}</h2>
+          </div>
+          <div class="mt-1">
+            <a href="${pr.link}" target="_blank"
+               class="text-sm text-emerald-400 hover:underline">
+              View Pull Request
+            </a>
+          </div>
+
+          ${headerCounts}
+
+          <div class="mt-3">
+            ${breakdownBar}
+          </div>
+        </div>
+
+        <div class="text-right shrink-0 flex flex-col gap-2 items-end">
+          ${renderRiskBadge(prRisk, "text-sm")}
+          <div class="text-xs text-slate-400">Risk Score: <span class="text-slate-200">${
+            pr.risk
+          }%</span></div>
+
+          ${renderRiskBadge(confMeta)}
+          <div class="text-xs text-slate-400">Confidence: <span class="text-slate-200">${
+            pr.confidence
+          }%</span></div>
+        </div>
+      </button>
+
+      <!-- CONTENT (animated accordion) -->
+      <div class="accordion-content overflow-hidden max-h-0 opacity-0 transition-[max-height,opacity] duration-300 ease-in-out">
+        <div class="px-4 pb-4 pt-2 space-y-4">
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            ${whyHtml}
+            ${fixHtml}
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="lg:col-span-2 space-y-4">
+              ${renderSection("❌ Errors", pr.errors, "risk")}
+              ${renderSection("⚠️ Warnings", pr.warnings, "risk")}
+              ${renderSection("✅ Passed Tests", pr.passed, "passed")}
+            </div>
+
+            <div class="space-y-2">
+              <h3 class="text-sm font-semibold text-slate-300">Generated Tests</h3>
+              <ul class="space-y-2">
+                ${(pr.generatedTests || [])
+                  .map(
+                    (t) => `
+                  <li class="p-3 rounded bg-[#0b1220] border border-slate-800">
+                    <div class="font-medium">${t.test}</div>
+                    <p class="text-sm text-slate-400 mt-1">Reason: ${t.reason}</p>
+                  </li>
+                `
+                  )
+                  .join("")}
+                ${
+                  !pr.generatedTests || pr.generatedTests.length === 0
+                    ? `
+                  <li class="p-3 rounded bg-[#0b1220] border border-slate-800 text-sm text-slate-400">
+                    No generated tests.
+                  </li>
+                `
+                    : ""
+                }
+              </ul>
+
+              <div class="pt-2">
+                <a href="${pr.link}" target="_blank"
+                   class="inline-flex items-center gap-2 text-sm text-emerald-400 hover:underline">
+                  Open PR <span class="text-slate-500">→</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    `;
+
+    container.appendChild(card);
+
+    // Auto-expand High Risk PRs
+    const shouldAutoOpen = riskMeta(pr.risk).label === "High Risk";
+    if (shouldAutoOpen) {
+      const headerBtn = card.querySelector("[data-toggle]");
+      const content = card.querySelector(".accordion-content");
+      openAccordion(headerBtn, content, true);
+    }
+  });
+
+  attachAccordionHandlers();
+}
+
+/* =========================================================
+   ACCORDION
+   ========================================================= */
+function openAccordion(btn, content, skipScroll = false) {
+  btn.setAttribute("aria-expanded", "true");
+  content.classList.remove("max-h-0", "opacity-0");
+  content.classList.add("opacity-100", "max-h-[2000px]");
+  if (!skipScroll) {
+    // optional: keep minimal, no auto scroll
+  }
+}
+
+function closeAccordion(btn, content) {
+  btn.setAttribute("aria-expanded", "false");
+  content.classList.add("max-h-0", "opacity-0");
+  content.classList.remove("opacity-100", "max-h-[2000px]");
+}
+
+function attachAccordionHandlers() {
+  document.querySelectorAll("[data-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const content = btn.nextElementSibling;
+      const expanded = btn.getAttribute("aria-expanded") === "true";
+      if (expanded) closeAccordion(btn, content);
+      else openAccordion(btn, content);
+    });
+  });
+}
+
+/* =========================================================
+   CONTROLS
+   ========================================================= */
+function bindControls() {
+  const highRiskOnly = document.getElementById("highRiskOnly");
+  const sortMode = document.getElementById("sortMode");
+
+  highRiskOnly.addEventListener("change", (e) => {
+    state.highRiskOnly = e.target.checked;
+    renderPullRequests(state.raw);
+  });
+
+  sortMode.addEventListener("change", (e) => {
+    state.sortMode = e.target.value;
+    renderPullRequests(state.raw);
+  });
+}
+
+/* =========================================================
+   INIT
+   ========================================================= */
+document.addEventListener("DOMContentLoaded", async () => {
+  bindControls();
+  state.raw = await fetchPullRequests();
+  renderPullRequests(state.raw);
+});
