@@ -1,196 +1,106 @@
-# ShipSure - PR Risk Analysis Tool
+# ShipSure - PR Risk Intelligence
 
-ShipSure analyzes pull requests, generates tests, runs them in secure sandboxes, and provides AI-powered risk assessments.
+ShipSure is an AI-powered pull request risk analysis tool that automatically analyzes GitHub pull requests, generates unit tests using CodeRabbit, runs them in Daytona sandboxes, and provides comprehensive risk assessments using GPT.
 
 ## Features
 
-- 🔍 Fetches all PRs from a repository
-- 🤖 Detects Coderabbit reviews automatically
-- 🧪 Triggers unit test generation via Coderabbit
-- 🏃 Runs tests in Daytona sandbox containers
-- 🧠 GPT-powered risk analysis based on code type and test coverage
-- 📊 Beautiful frontend dashboard to visualize results
-- 📝 Complete logging of all operations
+- 🔍 **Repository & PR Selection**: Search and select repositories, then choose PRs to analyze
+- 🤖 **Automated Test Generation**: Requests CodeRabbit to generate unit tests for selected PRs
+- 🧪 **Test Execution**: Runs generated tests in isolated Daytona sandboxes
+- 🧠 **AI Risk Analysis**: Uses GPT to analyze code, tests, and reviews for comprehensive risk assessment
+- 📊 **Risk Categories**: Provides detailed risk breakdown across Security, Performance, Maintainability, Reliability, and Compatibility
+- ⚠️ **Specific Risk Identification**: Identifies and categorizes specific risks with severity levels and recommendations
+- 🎨 **Beautiful UI**: Modern, cyber-themed interface with real-time progress tracking
 
 ## Prerequisites
 
-1. **Python 3.7+** installed
-2. **API Keys** (add to `.env` file):
-   - `GITHUB_TOKEN` - GitHub Personal Access Token
-   - `DAYTONA_API_KEY` - Daytona API Key
-   - `OPENAI_API_KEY` - OpenAI API Key
+- Python 3.8+
+- GitHub Personal Access Token (with repo access)
+- Daytona API Key
+- OpenAI API Key
 
 ## Installation
 
-1. **Clone/Download** this repository
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd ShipSure
+```
 
-2. **Install dependencies**:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Create `.env` file** in the project root:
+3. Create a `.env` file (optional - you can also enter keys in the UI):
 ```env
 GITHUB_TOKEN=your_github_token_here
 DAYTONA_API_KEY=your_daytona_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-## Usage
+## Running the Application
 
-### Step 1: Run Analysis
-
-Analyze PRs in a repository:
-
-```bash
-# Analyze all open PRs
-python main.py owner/repo
-
-# Analyze closed PRs
-python main.py owner/repo --state closed
-
-# Analyze all PRs (open + closed)
-python main.py owner/repo --state all
-
-# Limit number of PRs
-python main.py owner/repo --max-prs 10
-
-# Skip test execution (GPT analysis only)
-python main.py owner/repo --skip-tests
-
-# Skip GPT analysis (tests only)
-python main.py owner/repo --skip-gpt
-```
-
-**Example**:
-```bash
-python main.py aircode610/startup
-```
-
-This will:
-1. Fetch all PRs from the repository
-2. For each PR:
-   - Check for Coderabbit reviews
-   - Trigger unit test generation
-   - Run tests in Daytona
-   - Analyze with GPT for risk assessment
-3. Save results to `output/results_YYYYMMDD_HHMMSS.json`
-4. Save logs to `output/logs/shipSure_YYYYMMDD_HHMMSS.log`
-
-### Step 2: View Results in Frontend
-
-Start the web server:
-
+1. Start the server:
 ```bash
 python server.py
 ```
 
-Then open your browser to:
+2. Open your browser and navigate to:
 ```
 http://localhost:5000
 ```
 
-The frontend will automatically load the latest results and display them in an interactive dashboard.
+3. In the web interface:
+   - Enter your **GitHub Token** and click **Load Repos**
+   - Search and select a repository
+   - Select the pull requests you want to analyze
+   - Enter your **Daytona API Key** and **OpenAI API Key**
+   - Click **Analyze**
 
-## Output Format
+## How It Works
 
-Results are saved as JSON with this structure:
-
-```json
-{
-  "repository": "owner/repo",
-  "processedAt": "2024-01-01T12:00:00",
-  "pullRequests": [
-    {
-      "id": 42,
-      "title": "Fix auth bypass in login",
-      "link": "https://github.com/org/repo/pull/42",
-      "risk": 85,
-      "coderabbitReviews": [
-        {
-          "name": "SQL Injection check",
-          "type": "danger",
-          "risk": 85,
-          "description": "Unsafe query construction detected"
-        }
-      ],
-      "generatedTests": [
-        {
-          "test": "Expired Token Validation",
-          "reason": "Auth expiry path lacks coverage"
-        }
-      ],
-      "testResults": {
-        "status": "passed",
-        "exitCode": 0,
-        "output": "..."
-      }
-    }
-  ]
-}
-```
+1. **Repository Selection**: Fetches all repositories accessible with your GitHub token
+2. **PR Selection**: Lists all open pull requests for the selected repository
+3. **Test Generation**: Requests CodeRabbit to generate unit tests for selected PRs
+4. **Test Execution**: Waits for CodeRabbit to create test PRs (polls every minute for up to 15 minutes)
+5. **Daytona Testing**: Runs the generated tests in isolated Daytona sandboxes
+6. **AI Analysis**: Analyzes code, test results, and CodeRabbit reviews using GPT
+7. **Results Display**: Shows comprehensive risk analysis with categories, specific risks, and recommendations
 
 ## Project Structure
 
 ```
 ShipSure/
-├── main.py              # Main orchestrator
-├── server.py            # Flask server for frontend
-├── pr_processor.py      # PR processing logic
-├── test_runner.py       # Daytona test execution
-├── gpt_analyzer.py     # GPT risk analysis
-├── github_client.py    # GitHub API client
-├── run_tests_daytona.py # Detailed test runner
-├── front-end/          # Frontend dashboard
-│   ├── index.html
-│   └── app.js
-├── output/             # Generated results (auto-created)
-│   ├── results_*.json
-│   └── logs/
-└── .env                # API keys (create this)
+├── backend/           # Backend Python modules
+│   ├── github_client.py      # GitHub API client
+│   ├── gpt_analyzer.py       # GPT risk analysis
+│   ├── pr_processor.py       # PR processing logic
+│   ├── test_runner.py        # Daytona test execution
+│   └── run_tests_daytona.py  # Test file preparation
+├── frontend/          # Frontend web application
+│   ├── index.html     # Main HTML
+│   ├── app.js         # Frontend logic
+│   └── app.css        # Styling
+├── server.py          # Flask server
+└── requirements.txt   # Python dependencies
 ```
 
-## How It Works
+## API Endpoints
 
-1. **PR Fetching**: Gets all PRs from the repository
-2. **Coderabbit Detection**: Checks for existing Coderabbit reviews
-3. **Test Generation**: Triggers `@coderabbitai generate unit tests` comment
-4. **Test Execution**: 
-   - Fetches code and test files from PRs
-   - Creates Daytona sandbox
-   - Installs dependencies (pytest, etc.)
-   - Runs tests and captures output
-5. **Risk Analysis**: 
-   - Analyzes code type (auth/DB = critical)
-   - Evaluates test coverage
-   - Calculates risk scores (0-100)
-   - Determines confidence levels
-6. **Visualization**: Frontend displays results with filtering and sorting
+- `GET /api/repos?token=<github_token>` - Fetch user repositories
+- `GET /api/repos/<owner>/<repo>/prs?token=<github_token>` - Fetch PRs for a repository
+- `POST /api/analyze` - Start analysis (returns jobId)
+- `GET /api/analyze/<jobId>/status` - Get analysis status
+- `GET /api/analyze/<jobId>/results` - Get analysis results
 
-## Risk Assessment
+## Notes
 
-- **Critical (80-100)**: Authentication, database operations, payment processing
-- **High (60-79)**: API endpoints, data validation, file operations
-- **Medium (40-59)**: Business logic, utilities, helpers
-- **Low (0-39)**: UI changes, documentation, configuration
-
-## Troubleshooting
-
-### No results in frontend
-- Make sure you've run `python main.py owner/repo` first
-- Check that `output/results_*.json` files exist
-- Check server logs for errors
-
-### Tests failing
-- Ensure Daytona API key is valid
-- Check that pytest is installing correctly
-- Review test output in logs
-
-### GPT analysis errors
-- Verify OpenAI API key is set
-- Check API quota/limits
-- Review error messages in logs
+- The analysis process can take 10-15 minutes as it waits for CodeRabbit to generate tests
+- Test generation requests are deduplicated - if a test PR already exists or a request was already made, it won't create duplicates
+- Results are saved to the `output/` directory
+- The application uses async processing - you can monitor progress in real-time
 
 ## License
 
-MIT
+[Add your license here]
