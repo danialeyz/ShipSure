@@ -135,12 +135,57 @@ function getMockData() {
 }
 
 /* =========================================================
+   DEMO DATA (used before first analysis for UI development)
+   ========================================================= */
+const DEMO_DATA = {
+  pullRequests: [
+    {
+      id: "demo-1",
+      title: "Harden onboarding OAuth + audit logging",
+      link: "#",
+      risk: 72,
+      coderabbitReviews: [
+        {
+          name: "Token leakage check",
+          type: "danger",
+          risk: 84,
+          description: "OAuth callback path can log sensitive params.",
+        },
+        {
+          name: "PII masking",
+          type: "warning",
+          risk: 55,
+          description: "Audit log omits masking on email + phone.",
+        },
+        {
+          name: "Happy path tests",
+          type: "success",
+          description: "Primary OAuth flow passes regression suite.",
+        },
+      ],
+      generatedTests: [
+        {
+          test: "Invalid state token",
+          reason: "State param not validated against session store.",
+        },
+        {
+          test: "PII masking snapshot",
+          reason: "Ensure masked email/phone in audit log entries.",
+        },
+      ],
+    },
+  ],
+};
+
+/* =========================================================
    STATE
    ========================================================= */
 const state = {
-  raw: null,
+  raw: DEMO_DATA,
   highRiskOnly: false,
   sortMode: "risk_desc",
+  loading: false,
+  progressTimer: null,
 };
 
 /* =========================================================
@@ -174,10 +219,11 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-function countByType(reviews) {
-  const errors = reviews.filter((r) => r.type === "danger");
-  const warnings = reviews.filter((r) => r.type === "warning");
-  const passed = reviews.filter((r) => r.type === "success");
+function countByType(reviews = []) {
+  const list = Array.isArray(reviews) ? reviews : [];
+  const errors = list.filter((r) => r.type === "danger");
+  const warnings = list.filter((r) => r.type === "warning");
+  const passed = list.filter((r) => r.type === "success");
   return { errors, warnings, passed };
 }
 
@@ -203,10 +249,11 @@ function computeConfidence(pr) {
 }
 
 function computeWhyRisky(pr) {
-  const text = `${pr.title} ${pr.coderabbitReviews
+  const reviews = pr.coderabbitReviews || [];
+  const text = `${pr.title} ${reviews
     .map((r) => `${r.name} ${r.description}`)
     .join(" ")}`.toLowerCase();
-  const { errors, warnings } = countByType(pr.coderabbitReviews);
+  const { errors, warnings } = countByType(reviews);
 
   const reasons = [];
 
@@ -450,7 +497,7 @@ function getDerivedPR(pr) {
 }
 
 function applyFiltersAndSort(prs) {
-  let list = prs.slice();
+  let list = (prs || []).slice();
 
   if (state.highRiskOnly) {
     list = list.filter((pr) => riskMeta(pr.risk).label === "High Risk");
@@ -461,7 +508,7 @@ function applyFiltersAndSort(prs) {
     errors_desc: (a, b) => b.errors.length - a.errors.length,
     warnings_desc: (a, b) => b.warnings.length - a.warnings.length,
     confidence_desc: (a, b) => b.confidence - a.confidence,
-  }[state.sortMode];
+  }[state.sortMode] || (() => 0);
 
   list.sort(compare);
   return list;
@@ -475,7 +522,7 @@ function renderPullRequests(data) {
   }
   
   container.innerHTML = "";
-
+  
   console.log("Rendering PRs, data:", data);
   console.log("Number of PRs:", data.pullRequests?.length || 0);
 
@@ -654,6 +701,102 @@ function renderPullRequests(data) {
 }
 
 /* =========================================================
+   ANALYZE FORM + STATUS
+   ========================================================= */
+function setStatus(tone, message) {
+  const el = document.getElementById("analysisStatus");
+  if (!el) return;
+
+  const toneStyles = {
+    info: "text-slate-300 bg-slate-900/60 border border-slate-800",
+    success: "text-emerald-300 bg-emerald-500/10 border border-emerald-500/30",
+    error: "text-red-300 bg-red-500/10 border border-red-500/30",
+  };
+
+  const base = "text-xs rounded-md px-3 py-2";
+  el.className = `${base} ${toneStyles[tone] || toneStyles.info}`;
+  el.textContent = message;
+}
+
+function toggleAnalyzeLoading(isLoading) {
+  const btn = document.getElementById("analyzeBtn");
+  if (!btn) return;
+  state.loading = isLoading;
+  btn.disabled = isLoading;
+  btn.textContent = isLoading ? "Analyzing..." : "Analyze";
+}
+
+function startProgress() {
+  const track = document.getElementById("progressContainer");
+  const bar = document.getElementById("progressFill");
+  if (!track || !bar) return;
+
+  let pct = 6;
+  bar.style.width = `${pct}%`;
+  track.classList.remove("hidden");
+
+  clearInterval(state.progressTimer);
+  state.progressTimer = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 12, 92);
+    bar.style.width = `${pct}%`;
+  }, 350);
+}
+
+function stopProgress(success = true) {
+  const track = document.getElementById("progressContainer");
+  const bar = document.getElementById("progressFill");
+  if (!track || !bar) return;
+
+  clearInterval(state.progressTimer);
+  state.progressTimer = null;
+  bar.style.width = success ? "100%" : "0%";
+
+  setTimeout(() => {
+    bar.style.width = "0%";
+    track.classList.add("hidden");
+  }, success ? 500 : 0);
+}
+
+async function handleAnalyzeClick() {
+  const githubToken = document.getElementById("githubToken")?.value.trim();
+  const daytonaApiKey = document.getElementById("daytonaApiKey")?.value.trim();
+  const openaiApiKey = document.getElementById("openaiApiKey")?.value.trim();
+
+  if (!githubToken || !daytonaApiKey || !openaiApiKey) {
+    setStatus("error", "Please enter all three keys before analyzing.");
+    return;
+  }
+
+  let success = false;
+  try {
+    toggleAnalyzeLoading(true);
+    setStatus("info", "Analyzing pull requests...");
+    startProgress();
+    const data = await fetchPullRequests({
+      githubToken,
+      daytonaApiKey,
+      openaiApiKey,
+    });
+    state.raw = data;
+    renderPullRequests(state.raw);
+    setStatus("success", "Analysis complete. Results loaded.");
+    success = true;
+  } catch (err) {
+    console.error(err);
+    setStatus("error", err.message || "Failed to analyze pull requests.");
+  } finally {
+    stopProgress(success);
+    toggleAnalyzeLoading(false);
+  }
+}
+
+function bindAnalyze() {
+  const analyzeBtn = document.getElementById("analyzeBtn");
+  if (!analyzeBtn) return;
+  analyzeBtn.addEventListener("click", () => handleAnalyzeClick());
+}
+
+/* =========================================================
    ACCORDION
    ========================================================= */
 function openAccordion(btn, content, skipScroll = false) {
@@ -710,6 +853,7 @@ function attachAccordionHandlers() {
 function bindControls() {
   const highRiskOnly = document.getElementById("highRiskOnly");
   const sortMode = document.getElementById("sortMode");
+  if (!highRiskOnly || !sortMode) return;
 
   highRiskOnly.addEventListener("change", (e) => {
     state.highRiskOnly = e.target.checked;
