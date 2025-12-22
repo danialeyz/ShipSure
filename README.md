@@ -32,13 +32,6 @@ cd ShipSure
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file (optional - you can also enter keys in the UI):
-```env
-GITHUB_TOKEN=your_github_token_here
-DAYTONA_API_KEY=your_daytona_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
 ## Running the Application
 
 1. Start the server:
