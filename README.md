@@ -43,6 +43,10 @@ python server.py
 ```
 http://localhost:5000
 ```
+Or if you are using Live server extension for running front end:
+```
+http://localhost:5500
+```
 
 3. In the web interface:
    - Enter your **GitHub Token** and click **Load Repos**
